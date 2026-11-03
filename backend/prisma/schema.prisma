@@ -1,0 +1,526 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+  STAFF
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  AWAITING_VERIFICATION
+  EXCUSED
+}
+
+enum AttendanceScanMethod {
+  QR
+  MANUAL
+  BIOMETRIC
+}
+
+enum AbsenteeCallStatus {
+  PENDING
+  CALLED_CONFIRMED
+  NO_ANSWER
+  NOT_REACHABLE
+  NOT_REQUIRED
+}
+
+enum ExamType {
+  WEEKLY_TEST
+  UNIT_TEST
+  MID_TERM
+  FINAL_EXAM
+  MOCK_TEST
+}
+
+enum FeeStatus {
+  PAID
+  PARTIAL
+  PENDING
+  OVERDUE
+}
+
+enum PaymentMode {
+  CASH
+  ONLINE
+  UPI
+  CHEQUE
+  BANK_TRANSFER
+}
+
+enum ConversationType {
+  DIRECT
+  BATCH_GROUP
+}
+
+enum NotificationType {
+  ANNOUNCEMENT
+  ATTENDANCE
+  EXAM
+  MARKS
+  FEE
+  GENERAL
+}
+
+enum WhatsAppStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         Role      @default(STUDENT)
+  phone        String?
+  avatar       String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  teacherProfile            Teacher?
+  studentProfile            Student?
+  sentMessages              Message[]                 @relation("SentMessages")
+  conversationParticipants  ConversationParticipant[]
+  auditLogs                 AuditLog[]
+
+  @@index([role])
+  @@index([email])
+}
+
+model Teacher {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  employeeId       String   @unique
+  qualification    String?
+  experienceYears  Int?     @default(0)
+  bio              String?
+  specialization   String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjects         SubjectTeacher[]
+  timetableSessions TimetableSession[]
+  assignments      Assignment[]
+}
+
+model Student {
+  id               String    @id @default(uuid())
+  userId           String    @unique
+  rollNumber       String    @unique
+  qrCode           String    @unique
+  dateOfBirth      DateTime?
+  gender           String?
+  bloodGroup       String?
+  address          String?
+  emergencyContact String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentContact    ParentsContact?
+  enrollments      Enrollment[]
+  attendanceRecords AttendanceRecord[]
+  examResults      ExamResult[]
+  feeRecords       FeeRecord[]
+  progressReports  ProgressReport[]
+  whatsappLogs     WhatsAppDeliveryLog[]
+
+  @@index([rollNumber])
+  @@index([qrCode])
+}
+
+model ParentsContact {
+  id             String   @id @default(uuid())
+  studentId      String   @unique
+  fatherName     String?
+  fatherPhone    String?
+  motherName     String?
+  motherPhone    String?
+  whatsappNumber String
+  email          String?
+  relationship   String?  @default("Parent")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  student        Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+model Course {
+  id             String    @id @default(uuid())
+  code           String    @unique
+  name           String
+  description    String?
+  durationMonths Int       @default(12)
+  totalFees      Float     @default(0.0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  subjects       Subject[]
+  batches        Batch[]
+  examinations   Examination[]
+}
+
+model Subject {
+  id             String    @id @default(uuid())
+  courseId       String
+  name           String
+  code           String
+  colorHex       String    @default("#6366f1")
+  description    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  course         Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  teachers       SubjectTeacher[]
+  chapters       Chapter[]
+  timetableSessions TimetableSession[]
+  examinations   Examination[]
+  assignments    Assignment[]
+
+  @@unique([courseId, code])
+}
+
+model SubjectTeacher {
+  id        String   @id @default(uuid())
+  subjectId String
+  teacherId String
+
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([subjectId, teacherId])
+}
+
+model Chapter {
+  id            String   @id @default(uuid())
+  subjectId     String
+  chapterNumber Int
+  title         String
+  description   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subject       Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  notes         Note[]
+
+  @@unique([subjectId, chapterNumber])
+}
+
+model Note {
+  id           String   @id @default(uuid())
+  chapterId    String
+  title        String
+  description  String?
+  fileUrl      String
+  fileName     String
+  fileSize     Int      @default(0)
+  uploadedById String
+  version      Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  chapter      Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+}
+
+model Batch {
+  id           String    @id @default(uuid())
+  courseId     String
+  name         String
+  batchCode    String    @unique
+  startDate    DateTime
+  endDate      DateTime?
+  maxCapacity  Int       @default(40)
+  defaultRoom  String?
+  classStartTime String  @default("09:00") // e.g. "09:00"
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  course       Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  enrollments  Enrollment[]
+  timetables   TimetableSession[]
+  examinations Examination[]
+  attendance   AttendanceRecord[]
+  assignments  Assignment[]
+  conversations Conversation[]
+  feeRecords   FeeRecord[]
+}
+
+model Enrollment {
+  id         String   @id @default(uuid())
+  studentId  String
+  batchId    String
+  enrolledAt DateTime @default(now())
+  status     String   @default("ACTIVE") // ACTIVE, COMPLETED, DROPPED
+
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  batch      Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, batchId])
+}
+
+model TimetableSession {
+  id          String   @id @default(uuid())
+  batchId     String
+  subjectId   String
+  teacherId   String
+  dayOfWeek   Int      // 1 = Monday, 2 = Tuesday, ..., 7 = Sunday
+  startTime   String   // "09:00"
+  endTime     String   // "10:30"
+  roomNumber  String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  batch       Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  teacher     Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([dayOfWeek, batchId])
+  @@index([teacherId, dayOfWeek])
+}
+
+model AttendanceRecord {
+  id                  String               @id @default(uuid())
+  studentId           String
+  batchId             String
+  date                DateTime             @default(now()) // Stored as normalized date YYYY-MM-DD
+  status              AttendanceStatus     @default(PRESENT)
+  checkInTime         DateTime?
+  scanMethod          AttendanceScanMethod @default(QR)
+  verifiedBy          String?              // User ID or name who marked/verified
+  absenteeCallStatus  AbsenteeCallStatus   @default(NOT_REQUIRED)
+  absenteeRemarks     String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  student             Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  batch               Batch                @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, batchId, date])
+  @@index([batchId, date])
+  @@index([status])
+}
+
+model Examination {
+  id           String        @id @default(uuid())
+  title        String
+  examType     ExamType      @default(UNIT_TEST)
+  courseId     String
+  batchId      String
+  subjectId    String
+  examDate     DateTime
+  totalMarks   Float         @default(100.0)
+  passingMarks Float         @default(40.0)
+  isPublished  Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  course       Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  batch        Batch         @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  subject      Subject       @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  results      ExamResult[]
+
+  @@index([batchId, examDate])
+}
+
+model ExamResult {
+  id            String      @id @default(uuid())
+  examinationId String
+  studentId     String
+  marksObtained Float
+  rank          Int?
+  percentile    Float?
+  remarks       String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  examination   Examination @relation(fields: [examinationId], references: [id], onDelete: Cascade)
+  student       Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([examinationId, studentId])
+}
+
+model Assignment {
+  id           String    @id @default(uuid())
+  batchId      String
+  subjectId    String
+  teacherId    String
+  title        String
+  description  String
+  dueDate      DateTime
+  maxMarks     Float     @default(20.0)
+  attachmentUrl String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  batch        Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  subject      Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  teacher      Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+}
+
+model Conversation {
+  id           String                  @id @default(uuid())
+  type         ConversationType        @default(DIRECT)
+  title        String?
+  batchId      String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  batch        Batch?                  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime     @default(now())
+  lastReadAt     DateTime?
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String
+  attachmentUrl  String?
+  attachmentType String?
+  createdAt      DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String?          // If null, announcement to all or batch
+  batchId   String?
+  title     String
+  message   String
+  type      NotificationType @default(GENERAL)
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])
+  @@index([batchId])
+}
+
+model FeeRecord {
+  id            String      @id @default(uuid())
+  studentId     String
+  batchId       String
+  amount        Float
+  paidAmount    Float       @default(0.0)
+  dueDate       DateTime
+  paidDate      DateTime?
+  paymentMode   PaymentMode @default(UPI)
+  status        FeeStatus   @default(PENDING)
+  invoiceNumber String      @unique
+  receiptUrl    String?
+  remarks       String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  student       Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  batch         Batch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, status])
+}
+
+model ProgressReport {
+  id                     String    @id @default(uuid())
+  studentId              String
+  month                  Int       // 1 - 12
+  year                   Int
+  totalClasses           Int       @default(0)
+  attendedClasses        Int       @default(0)
+  attendancePercentage   Float     @default(0.0)
+  averageMarksPercentage Float     @default(0.0)
+  remarks                String?
+  areasOfImprovement     String?
+  generatedPdfUrl        String?
+  isSentToParent         Boolean   @default(false)
+  sentAt                 DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  student                Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, month, year])
+}
+
+model WhatsAppDeliveryLog {
+  id                 String         @id @default(uuid())
+  studentId          String?
+  parentPhone        String
+  messageType        String         // PROGRESS_REPORT, ATTENDANCE_ALERT, ANNOUNCEMENT
+  status             WhatsAppStatus @default(QUEUED)
+  provider           String         @default("MOCK") // MOCK, META, TWILIO
+  externalMessageId  String?
+  payloadJson        String?
+  errorMessage       String?
+  sentAt             DateTime       @default(now())
+
+  student            Student?       @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  @@index([studentId])
+  @@index([status])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  details    String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model InstituteSettings {
+  id                        String   @id @default("default")
+  instituteName             String   @default("ACE Academy")
+  tagLine                   String   @default("Premier Coaching for Excellence")
+  contactEmail              String   @default("info@aceacademy.edu")
+  contactPhone              String   @default("+91 98765 43210")
+  address                   String   @default("402 Knowledge Park, Tech Corridor, Pune")
+  logoUrl                   String?
+  lateArrivalCutoffMinutes  Int      @default(30)
+  whatsappApiKey            String?
+  whatsappProvider          String   @default("MOCK")
+  updatedAt                 DateTime @updatedAt
+}
+
